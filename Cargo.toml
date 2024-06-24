@@ -1,0 +1,10 @@
+[package]
+name = "decibender"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+cpal = "0.15.3"
+dasp = { version = "0.11.0", features = ["signal-rms"] }
+itertools = "0.13.0"
