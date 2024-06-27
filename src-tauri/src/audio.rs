@@ -48,7 +48,7 @@ pub fn watch_loudness(device_name: &str) -> anyhow::Result<watch::Receiver<f32>>
 
     let (watch_tx, watch_rx) = watch::channel(-60.0);
 
-    std::thread::spawn(move || {
+    thread::spawn(move || {
         let mut mean_square_buffer = VecDeque::new();
         loop {
             let Ok(mean_square) = rx.recv() else {
