@@ -2,6 +2,7 @@ use std::{
     collections::VecDeque,
     fs::File,
     io::BufReader,
+    path::PathBuf,
     sync::mpsc::{self, Sender},
     thread,
 };
@@ -71,7 +72,7 @@ pub fn watch_loudness(device_name: &str) -> anyhow::Result<watch::Receiver<f32>>
     Ok(watch_rx)
 }
 
-pub fn play_file(file: &str) -> anyhow::Result<PlayHandle> {
+pub fn play_file(file: &PathBuf) -> anyhow::Result<PlayHandle> {
     let file = BufReader::new(File::open(file)?);
     let source = Decoder::new(file)?;
     let (tx, rx) = mpsc::channel();

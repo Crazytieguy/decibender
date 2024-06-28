@@ -11,6 +11,7 @@ edition = "2021"
 opt-level = 3
 
 [build-dependencies]
+dotenvy = "0.15.7"
 tauri-build = { version = "1", features = [] }
 
 [dependencies]
@@ -19,13 +20,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1.0.86"
 cpal = "0.15.3"
-dotenvy = "0.15.7"
 env_logger = "0.11.3"
 itertools = "0.13.0"
 log = "0.4.21"
 reqwest = { version = "0.12.5", features = ["json"] }
 rodio = "0.18.1"
-rspotify = { version = "0.13.2", features = ["env-file", "cli"] }
+rspotify = { version = "0.13.2", features = ["cli"] }
 tokio = { version = "1.38.0", features = ["full"] }
 
 [features]

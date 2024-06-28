@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use decibender::{audio::PlayHandle, rules, thresholds::Thresholds};
 use serde::Serialize;
-use tauri::Window;
+use tauri::{AppHandle, Window};
 
 #[derive(Clone, Serialize)]
 enum State {
@@ -22,7 +22,11 @@ struct Loudness {
 static INITIALIZED: OnceLock<()> = OnceLock::new();
 
 #[tauri::command]
-async fn init(window: Window, initial_thresholds: Thresholds) -> Result<(), String> {
+async fn init(
+    window: Window,
+    app_handle: AppHandle,
+    initial_thresholds: Thresholds,
+) -> Result<(), String> {
     if let Err(_) = INITIALIZED.set(()) {
         // We've already initialized
         return Ok(());
@@ -30,6 +34,10 @@ async fn init(window: Window, initial_thresholds: Thresholds) -> Result<(), Stri
     log::info!("Initializing");
     // let device_name = "ATR4697-USB";
     let device_name = "MacBook Pro Microphone";
+    let annoying_file = app_handle
+        .path_resolver()
+        .resolve_resource(env!("ANNOYING_FILE"))
+        .ok_or_else(|| "Failed to resolve annoying file".to_string())?;
     let spotify = decibender::spotify::init()
         .await
         .map_err(|e| e.to_string())?;
@@ -61,7 +69,11 @@ async fn init(window: Window, initial_thresholds: Thresholds) -> Result<(), Stri
         match state {
             State::Acceptable if thresholds.too_loud(loudness) => {
                 log::info!("Too loud");
-                play_handle = Some(rules::too_loud().await.map_err(|e| e.to_string())?);
+                play_handle = Some(
+                    rules::too_loud(&annoying_file)
+                        .await
+                        .map_err(|e| e.to_string())?,
+                );
                 state = State::TooLoud;
             }
             State::Acceptable if thresholds.too_quite(loudness) => {
@@ -94,8 +106,7 @@ async fn init(window: Window, initial_thresholds: Thresholds) -> Result<(), Stri
 }
 
 fn main() {
-    dotenvy::dotenv().ok();
-    env_logger::init();
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("warn"));
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![init])
         .run(tauri::generate_context!())

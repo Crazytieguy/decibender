@@ -1,10 +1,13 @@
+use std::env;
+use std::path::PathBuf;
+
 use rspotify::{clients::OAuthClient, AuthCodeSpotify};
 
 use crate::audio::PlayHandle;
 
-pub async fn too_loud() -> anyhow::Result<PlayHandle> {
-    crate::lights::on().await?;
-    crate::audio::play_file("assets/man-screaming-6373.mp3")
+pub async fn too_loud(file_path: &PathBuf) -> anyhow::Result<PlayHandle> {
+    lights_on().await?;
+    crate::audio::play_file(file_path)
 }
 
 pub async fn acceptable(
@@ -20,12 +23,31 @@ pub async fn acceptable(
             return Err(e.into());
         }
     };
-    crate::lights::off().await?;
+    lights_off().await?;
     Ok(())
 }
 
 pub async fn too_quite(spotify: &AuthCodeSpotify) -> anyhow::Result<()> {
     // TODO: Turn off the nice lights
-    spotify.pause_playback(None).await?;
+    if let Err(e) = spotify.pause_playback(None).await {
+        if e.to_string().contains("403") {
+            // 403 is returned by spotify when spotify is already paused
+            log::warn!("Failed to resume playback: {}", e)
+        } else {
+            return Err(e.into());
+        }
+    };
+    Ok(())
+}
+
+async fn lights_on() -> anyhow::Result<()> {
+    const ON_URL: &str = env!("LIGHTS_ON_URL");
+    reqwest::get(ON_URL).await?;
+    Ok(())
+}
+
+async fn lights_off() -> anyhow::Result<()> {
+    const OFF_URL: &str = env!("LIGHTS_OFF_URL");
+    reqwest::get(OFF_URL).await?;
     Ok(())
 }
