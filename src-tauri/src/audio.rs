@@ -13,7 +13,7 @@ use cpal::{
 use rodio::{Decoder, OutputStream, Sink};
 use tokio::sync::watch;
 
-const BUFFER_SIZE: u32 = 1000;
+const BUFFER_SIZE: u32 = 4000;
 const RMS_SECONDS: usize = 3;
 
 pub fn watch_loudness(device_name: &str) -> anyhow::Result<watch::Receiver<f32>> {
