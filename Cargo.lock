@@ -770,6 +770,7 @@ dependencies = [
  "env_logger",
  "itertools 0.13.0",
  "log",
+ "rand 0.8.5",
  "reqwest",
  "rodio",
  "rspotify",

@@ -1,23 +1,28 @@
 use std::{
     collections::VecDeque,
+    f32::consts::PI,
     fs::File,
     io::BufReader,
     path::PathBuf,
     sync::mpsc::{self, Sender},
     thread,
+    time::Instant,
 };
 
+use anyhow::Context;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize,
 };
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, OutputStream, Sink, Source};
 use tokio::sync::watch;
 
 const BUFFER_SIZE: u32 = 4000;
-const RMS_SECONDS: usize = 3;
 
-pub fn watch_loudness(device_name: &str) -> anyhow::Result<watch::Receiver<f32>> {
+pub fn watch_loudness(
+    mut rms_seconds: watch::Receiver<f32>,
+) -> anyhow::Result<watch::Receiver<f32>> {
+    let device_name = env!("INPUT_DEVICE");
     let host = cpal::default_host();
     let mic = host
         .input_devices()?
@@ -27,15 +32,21 @@ pub fn watch_loudness(device_name: &str) -> anyhow::Result<watch::Receiver<f32>>
     mic_config.buffer_size = BufferSize::Fixed(BUFFER_SIZE);
 
     let (tx, rx) = mpsc::channel::<f32>();
+    let mut filter = Filter {
+        mode: FilterMode::HighPass,
+        cutoff: 100.0,
+        resonance: 0.0,
+        ic1eq: 0.0,
+        ic2eq: 0.0,
+        sample_rate: mic_config.sample_rate.0 as f32,
+    };
 
     let input_stream = mic.build_input_stream(
         &mic_config,
         move |data: &[f32], _| {
             debug_assert_eq!(data.len(), BUFFER_SIZE as usize);
-            let mean_square = data
-                .iter()
-                .map(|x| x.powi(2) / data.len() as f32)
-                .sum::<f32>();
+            let filtered = data.iter().map(|&x| filter.process(x));
+            let mean_square = filtered.map(|x| x.powi(2) / data.len() as f32).sum::<f32>();
             if tx.send(mean_square).is_err() {
                 panic!("Failed to send mean square to watch receiver");
             }
@@ -56,10 +67,11 @@ pub fn watch_loudness(device_name: &str) -> anyhow::Result<watch::Receiver<f32>>
                 panic!("Failed to receive mean square from input stream");
             };
             mean_square_buffer.push_back(mean_square);
-            if mean_square_buffer.len()
-                > (mic_config.sample_rate.0 / BUFFER_SIZE) as usize * RMS_SECONDS
-            {
-                mean_square_buffer.pop_front();
+            let target_len = (mic_config.sample_rate.0 as f32 / BUFFER_SIZE as f32
+                * *rms_seconds.borrow_and_update())
+            .round() as usize;
+            if mean_square_buffer.len() > target_len {
+                mean_square_buffer.drain(..mean_square_buffer.len() - target_len);
             }
             let mean_square_avg =
                 mean_square_buffer.iter().copied().sum::<f32>() / mean_square_buffer.len() as f32;
@@ -72,21 +84,86 @@ pub fn watch_loudness(device_name: &str) -> anyhow::Result<watch::Receiver<f32>>
     Ok(watch_rx)
 }
 
-pub fn play_file(file: &PathBuf) -> anyhow::Result<PlayHandle> {
-    let file = BufReader::new(File::open(file)?);
-    let source = Decoder::new(file)?;
+#[allow(dead_code)]
+enum FilterMode {
+    /// Removes frequencies above the cutoff frequency.
+    LowPass,
+    /// Removes frequencies above and below the cutoff frequency.
+    BandPass,
+    /// Removes frequencies below the cutoff frequency.
+    HighPass,
+    /// Removes frequencies around the cutoff frequency.
+    Notch,
+}
+
+struct Filter {
+    mode: FilterMode,
+    cutoff: f32,
+    resonance: f32,
+    ic1eq: f32,
+    ic2eq: f32,
+    sample_rate: f32,
+}
+
+impl Filter {
+    // copied from https://github.com/tesselode/kira/blob/main/crates/kira/src/effect/filter.rs
+    fn process(&mut self, sample: f32) -> f32 {
+        let g = (PI * (self.cutoff / self.sample_rate)).tan();
+        let k = 2.0 - (1.9 * self.resonance.min(1.0).max(0.0));
+        let a1 = 1.0 / (1.0 + (g * (g + k)));
+        let a2 = g * a1;
+        let a3 = g * a2;
+        let v3 = sample - self.ic2eq;
+        let v1 = (self.ic1eq * (a1 as f32)) + (v3 * (a2 as f32));
+        let v2 = self.ic2eq + (self.ic1eq * (a2 as f32)) + (v3 * (a3 as f32));
+        self.ic1eq = (v1 * 2.0) - self.ic1eq;
+        self.ic2eq = (v2 * 2.0) - self.ic2eq;
+        match self.mode {
+            FilterMode::LowPass => v2,
+            FilterMode::BandPass => v1,
+            FilterMode::HighPass => sample - v1 * (k as f32) - v2,
+            FilterMode::Notch => sample - v1 * (k as f32),
+        }
+    }
+}
+
+pub fn play_file(file_path: &PathBuf) -> anyhow::Result<PlayHandle> {
+    let file = BufReader::new(
+        File::open(file_path).with_context(|| format!("Failed to open file {file_path:?}"))?,
+    );
+    let source =
+        Decoder::new(file).with_context(|| format!("Failed to decode file {file_path:?}"))?;
+    let total_duration = source
+        .total_duration()
+        .ok_or_else(|| anyhow::anyhow!("Failed to get total duration for file {file_path:?}"))?;
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
+        let Ok((_stream, stream_handle)) = OutputStream::try_default() else {
+            log::error!("Failed to get default output stream");
+            return;
+        };
+        let Ok(sink) = Sink::try_new(&stream_handle) else {
+            log::error!("Failed to get sink from stream handle");
+            return;
+        };
         sink.append(source);
         // we expect the sender to be dropped
-        rx.recv().ok();
+        rx.recv_timeout(total_duration).ok();
     });
-    Ok(PlayHandle { _tx: tx })
+    Ok(PlayHandle {
+        expect_done_at: Instant::now() + total_duration,
+        _tx: tx,
+    })
 }
 
 /// To stop playback, drop the handle
 pub struct PlayHandle {
+    expect_done_at: Instant,
     _tx: Sender<()>,
+}
+
+impl PlayHandle {
+    pub fn expect_done_at(&self) -> Instant {
+        self.expect_done_at
+    }
 }

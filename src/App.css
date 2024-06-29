@@ -1,3 +1,48 @@
 h1 {
   margin-top: 1rem;
 }
+
+.progress-height {
+  height: 1.5em;
+}
+
+.progress-container {
+  height: 2em;
+  position: relative;
+  --pico-progress-color: rgb(243, 143, 121);
+}
+
+.absolute {
+  position: absolute;
+}
+
+.left {
+  left: 0.5em;
+}
+
+.right {
+  right: 0.5em;
+}
+
+.center {
+  left: 50%;
+  transform: translate(-50%, 0);
+}
+
+.threshold {
+  --pico-progress-color: rgba(175, 41, 29, 0.5);
+  --pico-progress-background-color: rgba(0, 0, 0, 0);
+}
+
+.grace {
+  --pico-progress-color: rgba(175, 41, 29, 0.2);
+  --pico-progress-background-color: rgba(0, 0, 0, 0);
+}
+
+.rotate-180 {
+  rotate: 180deg;
+}
+
+span.absolute {
+  color: white;
+}

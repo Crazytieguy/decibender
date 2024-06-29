@@ -1,4 +1,4 @@
-import "@picocss/pico/css/pico.amber.min.css";
+import "@picocss/pico/css/pico.min.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/tauri";
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
@@ -6,29 +6,38 @@ import "./App.css";
 
 function App() {
   const [thresholds, setThresholds] = createSignal({
-    too_loud: -20.0,
-    too_quite: -80.0,
-    grace: 8.0,
+    too_loud: -10.0,
+    too_quiet: -90.0,
+    grace: 6.0,
   });
+  const [rmsSeconds, setRmsSeconds] = createSignal(3);
   const [state, setState] = createSignal("Acceptable");
   const [loudness, setLoudness] = createSignal(-50.0);
+  const unlisten: (() => void)[] = [];
   onMount(async () => {
-    invoke("init", { initialThresholds: thresholds() });
-    const unlistenLoudness = await listen("loudness", (event) => {
-      // @ts-ignore  TODO: add zod later
-      setLoudness(event.payload.loudness);
-    });
-    const unlistenState = await listen("state", (event) => {
-      // @ts-ignore
-      setState(event.payload);
-    });
-    onCleanup(() => {
-      unlistenLoudness();
-      unlistenState();
-    });
+    unlisten.push(
+      ...(await Promise.all([
+        await listen("loudness", (event) => {
+          // @ts-ignore  TODO: add zod later
+          setLoudness(event.payload.loudness);
+        }),
+        await listen("state", (event) => {
+          // @ts-ignore
+          setState(event.payload);
+        }),
+        await listen("thresholds", (event) => {
+          // @ts-ignore
+          setThresholds(event.payload);
+        }),
+      ]))
+    );
+    invoke("init", { initialRmsSeconds: rmsSeconds() });
+  });
+  onCleanup(() => {
+    unlisten.forEach((fn) => fn());
   });
   createEffect(() => {
-    emit("thresholds", thresholds());
+    emit("rms-seconds", { rms_seconds: rmsSeconds() });
   });
 
   return (
@@ -36,47 +45,56 @@ function App() {
       <h1>Decibender!</h1>
 
       <p>Current State: {state()}</p>
-      <p>Current Loudness: {loudness().toFixed(2)} dB</p>
-      <progress value={loudness() + 100} max={100} />
+      <div class="progress-container">
+        <progress
+          value={loudness() + 100}
+          max={100}
+          class="absolute progress-height"
+        />
+        <progress
+          value={thresholds().too_quiet + 100}
+          max={100}
+          class="absolute threshold progress-height"
+        />
+        <progress
+          value={thresholds().too_quiet + thresholds().grace + 100}
+          max={100}
+          class="absolute progress-height grace"
+        />
+        <progress
+          value={-thresholds().too_loud}
+          max={100}
+          class="absolute threshold progress-height rotate-180"
+        />
+        <progress
+          value={-thresholds().too_loud + thresholds().grace}
+          max={100}
+          class="absolute progress-height grace rotate-180"
+        />
+        <span class="absolute left">
+          {(thresholds().too_quiet + 100).toFixed(1)} dB
+        </span>
+        <span class="absolute center">{(loudness() + 100).toFixed(1)} dB</span>
+        <span class="absolute right">
+          {(thresholds().too_loud + 100).toFixed(1)} dB
+        </span>
+      </div>
       <label>
-        Too Loud: {thresholds().too_loud} dB
+        RMS Seconds: {rmsSeconds()}
         <input
           type="range"
-          name="tooLoud"
-          value={thresholds().too_loud}
-          onChange={(e) =>
-            setThresholds((t) => ({ ...t, too_loud: Number(e.target.value) }))
-          }
-          min={-100.0}
-          max={0.0}
+          name="rmsSeconds"
+          value={rmsSeconds()}
+          onChange={(e) => setRmsSeconds(Number(e.target.value))}
+          step={0.5}
+          min={1}
+          max={10}
         />
       </label>
-      <label>
-        Too Quiet: {thresholds().too_quite} dB
-        <input
-          type="range"
-          name="tooQuiet"
-          value={thresholds().too_quite}
-          onChange={(e) =>
-            setThresholds((t) => ({ ...t, too_quite: Number(e.target.value) }))
-          }
-          min={-100.0}
-          max={0.0}
-        />
-      </label>
-      <label>
-        Grace: {thresholds().grace} dB
-        <input
-          type="range"
-          name="grace"
-          value={thresholds().grace}
-          onChange={(e) =>
-            setThresholds((t) => ({ ...t, grace: Number(e.target.value) }))
-          }
-          min={0.0}
-          max={20.0}
-        />
-      </label>
+      <div class="grid">
+        <button onClick={() => emit("louder")}>Louder!</button>
+        <button onClick={() => emit("quieter")}>Quieter!</button>
+      </div>
     </main>
   );
 }
