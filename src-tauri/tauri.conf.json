@@ -19,9 +19,18 @@
     },
     "windows": [
       {
+        "label": "main",
         "title": "decibender",
-        "width": 800,
-        "height": 600
+        "width": 1000,
+        "height": 400,
+        "url": "index.html"
+      },
+      {
+        "label": "admin",
+        "title": "decibender admin",
+        "width": 1000,
+        "height": 400,
+        "url": "admin.html"
       }
     ],
     "security": {

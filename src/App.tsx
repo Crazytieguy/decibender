@@ -1,7 +1,6 @@
 import "@picocss/pico/css/pico.min.css";
-import { emit, listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/tauri";
-import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { listen } from "@tauri-apps/api/event";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import "./App.css";
 
 function App() {
@@ -10,7 +9,6 @@ function App() {
     too_quiet: -90.0,
     grace: 6.0,
   });
-  const [rmsSeconds, setRmsSeconds] = createSignal(3);
   const [state, setState] = createSignal("Acceptable");
   const [loudness, setLoudness] = createSignal(-50.0);
   const unlisten: (() => void)[] = [];
@@ -31,13 +29,9 @@ function App() {
         }),
       ]))
     );
-    invoke("init", { initialRmsSeconds: rmsSeconds() });
   });
   onCleanup(() => {
     unlisten.forEach((fn) => fn());
-  });
-  createEffect(() => {
-    emit("rms-seconds", { rms_seconds: rmsSeconds() });
   });
 
   return (
@@ -78,22 +72,6 @@ function App() {
         <span class="absolute right">
           {(thresholds().too_loud + 100).toFixed(1)} dB
         </span>
-      </div>
-      <label>
-        RMS Seconds: {rmsSeconds()}
-        <input
-          type="range"
-          name="rmsSeconds"
-          value={rmsSeconds()}
-          onChange={(e) => setRmsSeconds(Number(e.target.value))}
-          step={0.5}
-          min={1}
-          max={10}
-        />
-      </label>
-      <div class="grid">
-        <button onClick={() => emit("louder")}>Louder!</button>
-        <button onClick={() => emit("quieter")}>Quieter!</button>
       </div>
     </main>
   );

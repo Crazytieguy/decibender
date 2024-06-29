@@ -13,7 +13,7 @@ use decibender::{
     thresholds::Thresholds,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Window};
+use tauri::{AppHandle, Manager};
 use tokio::{
     sync::{broadcast, watch},
     task::JoinHandle,
@@ -49,9 +49,9 @@ static INITIALIZED: OnceLock<()> = OnceLock::new();
 
 #[tauri::command]
 async fn init(
-    window: Window,
     app_handle: AppHandle,
     initial_rms_seconds: f32,
+    initial_thresholds: Thresholds,
 ) -> Result<(), AppError> {
     if let Err(_) = INITIALIZED.set(()) {
         // We've already initialized
@@ -61,11 +61,11 @@ async fn init(
 
     let rule_executor = RuleExecutor::new(&app_handle).await?;
 
-    let mut thresholds = Thresholds::default();
-    window.emit("thresholds", thresholds.clone())?;
+    app_handle.emit_all("thresholds", initial_thresholds)?;
+    tokio::spawn(rule_executor.clone().adjust_volume(initial_thresholds));
 
     let mut state = State::Acceptable;
-    let mut end_transition_at = std::time::Instant::now();
+    let mut end_grace_period_at = std::time::Instant::now();
     let mut current_task: Option<JoinHandle<()>> = None;
     let mut set_current_task = |task| {
         if let Some(task) = current_task.take() {
@@ -76,18 +76,19 @@ async fn init(
 
     let (louder_tx, mut louder_rx) = broadcast::channel::<()>(4);
     let (quieter_tx, mut quieter_rx) = broadcast::channel::<()>(4);
+    let (thresholds_tx, mut thresholds_rx) = watch::channel::<Thresholds>(initial_thresholds);
     let (rms_seconds_tx, rms_seconds) = watch::channel::<f32>(initial_rms_seconds);
     let mut loudness_rx = audio::watch_loudness(rms_seconds)?;
 
-    window.listen("louder", move |_event| {
-        louder_tx.send(()).unwrap();
+    app_handle.listen_global("louder", move |_event| {
+        louder_tx.send(()).ok();
     });
 
-    window.listen("quieter", move |_event| {
-        quieter_tx.send(()).unwrap();
+    app_handle.listen_global("quieter", move |_event| {
+        quieter_tx.send(()).ok();
     });
 
-    window.listen("rms-seconds", move |event| {
+    app_handle.listen_global("rms-seconds", move |event| {
         let Some(payload) = event.payload() else {
             log::error!("No payload in rms_seconds event");
             return;
@@ -99,28 +100,42 @@ async fn init(
         log::info!("Updating rms_seconds: {}", rms_seconds);
         rms_seconds_tx.send(rms_seconds).ok();
     });
+    app_handle.listen_global("thresholds", move |event| {
+        let Some(payload) = event.payload() else {
+            log::error!("No payload in thresholds event");
+            return;
+        };
+        let Ok(thresholds) = serde_json::from_str(payload) else {
+            log::error!("Failed to parse thresholds payload: {}", payload);
+            return;
+        };
+        log::info!("Updating thresholds: {:?}", thresholds);
+        thresholds_tx.send(thresholds).ok();
+    });
 
     loop {
         tokio::select! {
             _ = louder_rx.recv() => {
-                thresholds.louder();
-                window.emit("thresholds", thresholds.clone())?;
-                end_transition_at = Instant::now() + Duration::from_secs(7);
-                tokio::spawn(rule_executor.clone().announce_louder());
+                end_grace_period_at = Instant::now() + Duration::from_secs(7);
+                tokio::spawn(rule_executor.clone().louder());
                 continue;
             }
             _ = quieter_rx.recv() => {
-                thresholds.quieter();
-                window.emit("thresholds", thresholds.clone())?;
-                end_transition_at = Instant::now() + Duration::from_secs(7);
-                tokio::spawn(rule_executor.clone().announce_quieter());
+                end_grace_period_at = Instant::now() + Duration::from_secs(7);
+                tokio::spawn(rule_executor.clone().quieter());
                 continue;
+            }
+            _ = thresholds_rx.changed() => {
+                let thresholds = *thresholds_rx.borrow_and_update();
+                app_handle.emit_all("thresholds", thresholds)?;
+                tokio::spawn(rule_executor.clone().adjust_volume(thresholds));
             }
             _ = loudness_rx.changed() => {}
         };
+        let thresholds = thresholds_rx.borrow();
         let loudness = *loudness_rx.borrow_and_update();
-        window.emit("loudness", Loudness { loudness })?;
-        if end_transition_at > Instant::now() {
+        app_handle.emit_all("loudness", Loudness { loudness })?;
+        if end_grace_period_at > Instant::now() {
             continue;
         }
         match state {
@@ -142,7 +157,7 @@ async fn init(
             }
             _ => continue,
         };
-        window.emit("state", state.clone())?;
+        app_handle.emit_all("state", state.clone())?;
     }
 }
 

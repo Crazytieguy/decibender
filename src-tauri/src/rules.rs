@@ -12,6 +12,7 @@ use crate::{
     audio::{self, PlayHandle},
     sound_files::SoundFiles,
     spotify,
+    thresholds::Thresholds,
 };
 
 pub struct RuleExecutor {
@@ -39,7 +40,18 @@ impl RuleExecutor {
         }))
     }
 
-    pub async fn announce_louder(self: Arc<Self>) {
+    pub async fn adjust_volume(self: Arc<Self>, thresholds: Thresholds) {
+        let volume_percent =
+            (120.0 + (thresholds.too_loud + thresholds.too_quiet) / 2.0).round() as u8;
+        if let Err(e) = self.spotify.volume(volume_percent.min(100), None).await {
+            log::error!(
+                "{:?}",
+                anyhow::Error::from(e).context("Failed to adjust volume")
+            );
+        };
+    }
+
+    pub async fn louder(self: Arc<Self>) {
         if let Err::<(), anyhow::Error>(e) = try {
             let play_handle = audio::play_file(&self.sound_files.random_louder_announcement())?;
             self.play_handle_tx.send(Some(play_handle)).await?;
@@ -48,7 +60,7 @@ impl RuleExecutor {
         }
     }
 
-    pub async fn announce_quieter(self: Arc<Self>) {
+    pub async fn quieter(self: Arc<Self>) {
         if let Err::<(), anyhow::Error>(e) = try {
             let play_handle = audio::play_file(&self.sound_files.random_quieter_announcement())?;
             self.play_handle_tx.send(Some(play_handle)).await?;
