@@ -5,11 +5,11 @@ import { createEffect, createSignal, onMount } from "solid-js";
 
 function App() {
   const [thresholds, setThresholds] = createSignal({
-    too_loud: -35.0,
-    too_quiet: -75.0,
+    too_loud: -25.0,
+    too_quiet: -60.0,
     grace: 6.0,
   });
-  const [rmsSeconds, setRmsSeconds] = createSignal(3);
+  const [rmsSeconds, setRmsSeconds] = createSignal(5);
 
   onMount(async () => {
     invoke("init", {
@@ -102,8 +102,8 @@ function App() {
           onClick={async () => {
             await emit("louder");
             setThresholds((current) => ({
-              too_loud: current.too_loud + 6.0,
-              too_quiet: current.too_quiet + 6.0,
+              too_loud: current.too_loud + 3.0,
+              too_quiet: current.too_quiet + 3.0,
               grace: current.grace,
             }));
           }}
@@ -114,8 +114,8 @@ function App() {
           onClick={async () => {
             await emit("quieter");
             setThresholds((current) => ({
-              too_loud: current.too_loud - 6.0,
-              too_quiet: current.too_quiet - 6.0,
+              too_loud: current.too_loud - 3.0,
+              too_quiet: current.too_quiet - 3.0,
               grace: current.grace,
             }));
           }}

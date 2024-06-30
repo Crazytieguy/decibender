@@ -7,6 +7,7 @@ pub struct SoundFiles {
     pub annoying: PathBuf,
     pub too_loud_anouncement: PathBuf,
     pub too_quiet_anouncement: PathBuf,
+    pub back_to_normal_announcement: PathBuf,
     pub louder_anouncements: Vec<PathBuf>,
     pub quieter_anouncements: Vec<PathBuf>,
 }
@@ -34,6 +35,10 @@ impl SoundFiles {
                 .path_resolver()
                 .resolve_resource(env!("TOO_LOUD_ANNOUNCEMENT_FILE"))
                 .ok_or_else(|| anyhow::anyhow!("Failed to resolve too loud announcement file"))?,
+            back_to_normal_announcement: app_handle
+                .path_resolver()
+                .resolve_resource(env!("BACK_TO_NORMAL_ANNOUNCEMENT_FILE"))
+                .ok_or_else(|| anyhow::anyhow!("Failed to resolve back to normal file"))?,
             too_quiet_anouncement: app_handle
                 .path_resolver()
                 .resolve_resource(env!("TOO_QUIET_ANNOUNCEMENT_FILE"))

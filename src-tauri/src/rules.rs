@@ -42,7 +42,7 @@ impl RuleExecutor {
 
     pub async fn adjust_volume(self: Arc<Self>, thresholds: Thresholds) {
         let volume_percent =
-            (120.0 + (thresholds.too_loud + thresholds.too_quiet) / 2.0).round() as u8;
+            (110.0 + (thresholds.too_loud + thresholds.too_quiet) / 2.0).round() as u8;
         if let Err(e) = self.spotify.volume(volume_percent.min(100), None).await {
             log::error!(
                 "{:?}",
@@ -77,13 +77,14 @@ impl RuleExecutor {
             self.play_handle_tx.send(Some(play_handle)).await?;
             sleep(expect_done_at - Instant::now()).await;
 
-            let play_handle = audio::play_file(&self.sound_files.annoying)?;
-            self.play_handle_tx.send(Some(play_handle)).await?;
             loop {
-                annoying_lights_on().await?;
-                sleep(Duration::from_secs(2)).await;
-                annoying_lights_off().await?;
-                sleep(Duration::from_secs(2)).await;
+                let play_handle = audio::play_file(&self.sound_files.annoying)?;
+                self.play_handle_tx.send(Some(play_handle)).await?;
+                flicker_once().await?;
+                self.play_handle_tx.send(None).await?;
+                flicker_once().await?;
+                flicker_once().await?;
+                flicker_once().await?;
             }
         } {
             log::error!("{:?}", e.context("Too loud failed"));
@@ -93,8 +94,7 @@ impl RuleExecutor {
     pub async fn acceptable(self: Arc<Self>) {
         log::info!("Acceptable");
         if let Err::<(), anyhow::Error>(e) = try {
-            // TODO: this should be a "back to normal" anouncement
-            let play_handle = audio::play_file(&self.sound_files.too_loud_anouncement)?;
+            let play_handle = audio::play_file(&self.sound_files.back_to_normal_announcement)?;
             let expect_done_at = play_handle.expect_done_at();
             self.play_handle_tx.send(Some(play_handle)).await?;
             sleep(expect_done_at - Instant::now()).await;
@@ -157,6 +157,14 @@ impl RuleExecutor {
             log::error!("{:?}", e.context("Too quiet failed"));
         };
     }
+}
+
+async fn flicker_once() -> Result<(), anyhow::Error> {
+    annoying_lights_on().await?;
+    sleep(Duration::from_millis(1500)).await;
+    annoying_lights_off().await?;
+    sleep(Duration::from_millis(1500)).await;
+    Ok(())
 }
 
 async fn annoying_lights_on() -> anyhow::Result<()> {

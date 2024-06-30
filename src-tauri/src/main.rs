@@ -140,18 +140,22 @@ async fn init(
         }
         match state {
             State::Acceptable if thresholds.too_loud(loudness) => {
+                end_grace_period_at = Instant::now() + Duration::from_secs(7);
                 set_current_task(tokio::spawn(rule_executor.clone().too_loud()));
                 state = State::TooLoud;
             }
             State::Acceptable if thresholds.too_quiet(loudness) => {
+                end_grace_period_at = Instant::now() + Duration::from_secs(7);
                 set_current_task(tokio::spawn(rule_executor.clone().too_quiet()));
                 state = State::TooQuiet;
             }
             State::TooLoud if thresholds.acceptable_from_too_loud(loudness) => {
+                end_grace_period_at = Instant::now() + Duration::from_secs(7);
                 set_current_task(tokio::spawn(rule_executor.clone().acceptable()));
                 state = State::Acceptable;
             }
             State::TooQuiet if thresholds.acceptable_from_too_quiet(loudness) => {
+                end_grace_period_at = Instant::now() + Duration::from_secs(7);
                 set_current_task(tokio::spawn(rule_executor.clone().acceptable()));
                 state = State::Acceptable;
             }
